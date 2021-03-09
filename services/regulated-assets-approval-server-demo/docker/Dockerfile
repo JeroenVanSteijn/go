@@ -1,4 +1,4 @@
-FROM golang:1.14-stretch as build
+FROM golang:1.16 as build
 
 ADD . /src/regulated-assets-approval-server-demo
 WORKDIR /src/regulated-assets-approval-server-demo

@@ -5,7 +5,7 @@ WORKDIR /src/regulated-assets-approval-server-demo
 RUN go build -o /bin/regulated-assets-approval-server-demo ./services/regulated-assets-approval-server-demo
 
 
-FROM ubuntu:16.04
+FROM ubuntu:20.04
 
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
 COPY --from=build /bin/regulated-assets-approval-server-demo /app/

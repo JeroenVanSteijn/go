@@ -1,25 +1,19 @@
 package cmd
 
 import (
-	"fmt"
 	"go/types"
 
 	"github.com/spf13/cobra"
 	"github.com/stellar/go/clients/horizonclient"
 	"github.com/stellar/go/network"
+	"github.com/stellar/go/services/regulated-assets-approval-server/configureassetissuer"
 	"github.com/stellar/go/support/config"
 )
-
-type AssetIssuerOptions struct {
-	HorizonURL          string
-	NetworkPassphrase   string
-	AccountIssuerSecret string
-}
 
 type ConfigureAssetIssuer struct{}
 
 func (c *ConfigureAssetIssuer) Command() *cobra.Command {
-	opts := AssetIssuerOptions{}
+	opts := configureassetissuer.ConfigureAssetIssuerOptions{}
 	configOpts := config.ConfigOptions{
 		{
 			Name:      "account-issuer-secret",
@@ -58,6 +52,6 @@ func (c *ConfigureAssetIssuer) Command() *cobra.Command {
 	return cmd
 }
 
-func (c *ConfigureAssetIssuer) Run(opts AssetIssuerOptions) {
-	fmt.Printf("tada! %+v\n", opts)
+func (c *ConfigureAssetIssuer) Run(opts configureassetissuer.ConfigureAssetIssuerOptions) {
+	configureassetissuer.Configure(opts)
 }

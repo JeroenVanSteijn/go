@@ -23,6 +23,13 @@ func (c *ConfigureAssetIssuer) Command() *cobra.Command {
 			Required:  true,
 		},
 		{
+			Name:      "asset-code",
+			Usage:     "The code of the reguated asset",
+			OptType:   types.String,
+			ConfigKey: &opts.AssetCode,
+			Required:  true,
+		},
+		{
 			Name:        "horizon-url",
 			Usage:       "Horizon URL used for looking up account details",
 			OptType:     types.String,

@@ -13,6 +13,7 @@ type ConfigureAssetIssuerOptions struct {
 	HorizonURL          string
 	NetworkPassphrase   string
 	AccountIssuerSecret string
+	AssetCode           string
 }
 
 func (opts ConfigureAssetIssuerOptions) horizonClient() horizonclient.ClientInterface {
@@ -32,6 +33,10 @@ func Configure(opts ConfigureAssetIssuerOptions) {
 	err := ConfigureAccountFlags(opts)
 	if err != nil {
 		log.DefaultLogger.Fatal(errors.Wrap(err, "configuring account flags"))
+	}
+	err = IssueAssetOffer(opts)
+	if err != nil {
+		log.DefaultLogger.Fatal(errors.Wrap(err, "issuing asset offer"))
 	}
 }
 
@@ -70,6 +75,57 @@ func ConfigureAccountFlags(opts ConfigureAssetIssuerOptions) error {
 						txnbuild.AuthRequired,
 						txnbuild.AuthRevocable,
 					},
+				},
+			},
+			BaseFee:    300,
+			Timebounds: txnbuild.NewTimeout(300),
+		},
+	)
+	if err != nil {
+		return errors.Wrap(err, "creating transaction")
+	}
+
+	tx, err = tx.Sign(opts.NetworkPassphrase, kp)
+	if err != nil {
+		return errors.Wrap(err, "signing transaction")
+	}
+
+	_, err = horizonClient.SubmitTransaction(tx)
+	if err != nil {
+		return errors.Wrap(err, "submitting transaction")
+	}
+
+	return nil
+}
+
+func IssueAssetOffer(opts ConfigureAssetIssuerOptions) error {
+	kp, err := keypair.ParseFull(opts.AccountIssuerSecret)
+	if err != nil {
+		return errors.Wrap(err, "parsing secret")
+	}
+
+	horizonClient := opts.horizonClient()
+
+	account, err := horizonClient.AccountDetail(horizonclient.AccountRequest{
+		AccountID: kp.Address(),
+	})
+	if err != nil {
+		return errors.Wrap(err, "getting account detail")
+	}
+
+	tx, err := txnbuild.NewTransaction(
+		txnbuild.TransactionParams{
+			SourceAccount:        &account,
+			IncrementSequenceNum: true,
+			Operations: []txnbuild.Operation{
+				&txnbuild.ManageSellOffer{
+					Selling: txnbuild.CreditAsset{
+						Code:   "HUE",
+						Issuer: kp.Address(),
+					},
+					Buying: txnbuild.NativeAsset{},
+					Amount: "100000",
+					Price:  "1",
 				},
 			},
 			BaseFee:    300,

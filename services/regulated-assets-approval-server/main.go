@@ -20,6 +20,7 @@ func main() {
 	}
 
 	rootCmd.AddCommand((&cmd.ServeCommand{}).Command())
+	rootCmd.AddCommand((&cmd.ConfigureAssetIssuer{}).Command())
 
 	err := rootCmd.Execute()
 	if err != nil {

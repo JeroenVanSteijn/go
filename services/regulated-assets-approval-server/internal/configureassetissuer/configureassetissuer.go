@@ -49,7 +49,7 @@ func Configure(opts Options) {
 	}
 
 	if account.Flags.AuthRevocable && account.Flags.AuthRequired {
-		log.Info("Account is already \"Auth Required\" and \"Auth Revocable\"")
+		log.Info("Account flags already contain \"Auth Required\" and \"Auth Revocable\"")
 		return
 	}
 

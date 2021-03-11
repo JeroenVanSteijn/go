@@ -92,7 +92,7 @@ func ConfigureAccountFlags(opts ConfigureAssetIssuerOptions) error {
 
 	_, err = horizonClient.SubmitTransaction(tx)
 	if err != nil {
-		return errors.Wrap(err, "submitting transaction")
+		return parseHorizonError(err)
 	}
 
 	return nil
@@ -143,8 +143,23 @@ func IssueAssetOffer(opts ConfigureAssetIssuerOptions) error {
 
 	_, err = horizonClient.SubmitTransaction(tx)
 	if err != nil {
-		return errors.Wrap(err, "submitting transaction")
+		return parseHorizonError(err)
 	}
 
 	return nil
+}
+
+func parseHorizonError(err error) error {
+	if err == nil {
+		return nil
+	}
+
+	rootErr := errors.Cause(err)
+	if hError := horizonclient.GetError(rootErr); hError != nil {
+		resultCode, _ := hError.ResultCodes()
+		err = errors.Wrapf(err, "error submitting transaction: %+v, %+v\n", hError.Problem, resultCode)
+	} else {
+		err = errors.Wrap(err, "error submitting transaction")
+	}
+	return err
 }

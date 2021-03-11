@@ -6,20 +6,27 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/stellar/go/clients/horizonclient"
 	"github.com/stellar/go/network"
-	"github.com/stellar/go/services/regulated-assets-approval-server/configureassetissuer"
+	"github.com/stellar/go/services/regulated-assets-approval-server/createregulatedassetoffer"
 	"github.com/stellar/go/support/config"
 )
 
-type ConfigureAssetIssuer struct{}
+type CreateRegulatedAssetOffer struct{}
 
-func (c *ConfigureAssetIssuer) Command() *cobra.Command {
-	opts := configureassetissuer.ConfigureAssetIssuerOptions{}
+func (c *CreateRegulatedAssetOffer) Command() *cobra.Command {
+	opts := createregulatedassetoffer.CreateRegulatedAssetOfferOptions{}
 	configOpts := config.ConfigOptions{
 		{
 			Name:      "account-issuer-secret",
 			Usage:     "Secret key of the asset issuer's stellar account.",
 			OptType:   types.String,
 			ConfigKey: &opts.AccountIssuerSecret,
+			Required:  true,
+		},
+		{
+			Name:      "asset-code",
+			Usage:     "The code of the reguated asset",
+			OptType:   types.String,
+			ConfigKey: &opts.AssetCode,
 			Required:  true,
 		},
 		{
@@ -40,8 +47,8 @@ func (c *ConfigureAssetIssuer) Command() *cobra.Command {
 		},
 	}
 	cmd := &cobra.Command{
-		Use:   "configure-asset-issuer",
-		Short: "Configure asset issuer to use SEP-8 regulated assets.",
+		Use:   "create-regulated-asset-offer",
+		Short: "Create a sell offer of the regulated asset selling ASSET_CODE for XLM at 1:1.",
 		Run: func(_ *cobra.Command, _ []string) {
 			configOpts.Require()
 			configOpts.SetValues()
@@ -52,6 +59,6 @@ func (c *ConfigureAssetIssuer) Command() *cobra.Command {
 	return cmd
 }
 
-func (c *ConfigureAssetIssuer) Run(opts configureassetissuer.ConfigureAssetIssuerOptions) {
-	configureassetissuer.Configure(opts)
+func (c *CreateRegulatedAssetOffer) Run(opts createregulatedassetoffer.CreateRegulatedAssetOfferOptions) {
+	createregulatedassetoffer.IssueAssetOffer(opts)
 }

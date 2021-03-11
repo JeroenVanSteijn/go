@@ -80,8 +80,6 @@ func Create(opts Options) {
 		log.Fatal(parseHorizonError(err))
 	}
 	log.Info("Did create offer")
-
-	return
 }
 
 func parseHorizonError(err error) error {

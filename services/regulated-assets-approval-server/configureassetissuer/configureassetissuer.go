@@ -9,13 +9,13 @@ import (
 	"github.com/stellar/go/txnbuild"
 )
 
-type ConfigureAssetIssuerOptions struct {
+type Options struct {
 	HorizonURL          string
 	NetworkPassphrase   string
 	AccountIssuerSecret string
 }
 
-func (opts ConfigureAssetIssuerOptions) horizonClient() horizonclient.ClientInterface {
+func (opts Options) horizonClient() horizonclient.ClientInterface {
 	var client *horizonclient.Client
 	if opts.NetworkPassphrase == network.PublicNetworkPassphrase {
 		client = horizonclient.DefaultPublicNetClient
@@ -28,7 +28,7 @@ func (opts ConfigureAssetIssuerOptions) horizonClient() horizonclient.ClientInte
 	return client
 }
 
-func Configure(opts ConfigureAssetIssuerOptions) {
+func Configure(opts Options) {
 	err := configureAccountFlags(opts)
 	if err != nil {
 		log.DefaultLogger.Fatal(errors.Wrap(err, "configuring account flags"))
@@ -39,7 +39,7 @@ func Configure(opts ConfigureAssetIssuerOptions) {
 // to "auth_required: true" and "auth_revocable: true".
 // ref1:https://developers.stellar.org/docs/issuing-assets/control-asset-access/
 // ref2:https://github.com/stellar/stellar-protocol/blob/d49e04af8e047474f2c506d9d11bb63b6ad55d2c/ecosystem/sep-0008.md#authorization-flags
-func configureAccountFlags(opts ConfigureAssetIssuerOptions) error {
+func configureAccountFlags(opts Options) error {
 	kp, err := keypair.ParseFull(opts.AccountIssuerSecret)
 	if err != nil {
 		return errors.Wrap(err, "parsing secret")
@@ -56,7 +56,7 @@ func configureAccountFlags(opts ConfigureAssetIssuerOptions) error {
 	}
 
 	if account.Flags.AuthRevocable && account.Flags.AuthRequired {
-		log.Info("Account is already auth_revocable:true and auth_required:true.")
+		log.Info("Account is already \"Auth Required\" and \"Auth Revocable\"")
 		return nil
 	}
 
@@ -85,10 +85,12 @@ func configureAccountFlags(opts ConfigureAssetIssuerOptions) error {
 		return errors.Wrap(err, "signing transaction")
 	}
 
+	log.Info("Will update account flags")
 	_, err = horizonClient.SubmitTransaction(tx)
 	if err != nil {
 		return parseHorizonError(err)
 	}
+	log.Info("Did update account flags")
 
 	return nil
 }

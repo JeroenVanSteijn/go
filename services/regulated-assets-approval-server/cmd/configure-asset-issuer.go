@@ -13,7 +13,7 @@ import (
 type ConfigureAssetIssuer struct{}
 
 func (c *ConfigureAssetIssuer) Command() *cobra.Command {
-	opts := configureassetissuer.ConfigureAssetIssuerOptions{}
+	opts := configureassetissuer.Options{}
 	configOpts := config.ConfigOptions{
 		{
 			Name:      "account-issuer-secret",
@@ -52,6 +52,6 @@ func (c *ConfigureAssetIssuer) Command() *cobra.Command {
 	return cmd
 }
 
-func (c *ConfigureAssetIssuer) Run(opts configureassetissuer.ConfigureAssetIssuerOptions) {
+func (c *ConfigureAssetIssuer) Run(opts configureassetissuer.Options) {
 	configureassetissuer.Configure(opts)
 }

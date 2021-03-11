@@ -13,7 +13,7 @@ import (
 type CreateRegulatedAssetOffer struct{}
 
 func (c *CreateRegulatedAssetOffer) Command() *cobra.Command {
-	opts := createregulatedassetoffer.CreateRegulatedAssetOfferOptions{}
+	opts := createregulatedassetoffer.Options{}
 	configOpts := config.ConfigOptions{
 		{
 			Name:      "account-issuer-secret",
@@ -48,7 +48,7 @@ func (c *CreateRegulatedAssetOffer) Command() *cobra.Command {
 	}
 	cmd := &cobra.Command{
 		Use:   "create-regulated-asset-offer",
-		Short: "Create a sell offer of the regulated asset selling ASSET_CODE for XLM at 1:1.",
+		Short: "Create a sell offer from the issuing account selling ASSET_CODE for XLM at 1:1.",
 		Run: func(_ *cobra.Command, _ []string) {
 			configOpts.Require()
 			configOpts.SetValues()
@@ -59,6 +59,6 @@ func (c *CreateRegulatedAssetOffer) Command() *cobra.Command {
 	return cmd
 }
 
-func (c *CreateRegulatedAssetOffer) Run(opts createregulatedassetoffer.CreateRegulatedAssetOfferOptions) {
-	createregulatedassetoffer.IssueAssetOffer(opts)
+func (c *CreateRegulatedAssetOffer) Run(opts createregulatedassetoffer.Options) {
+	createregulatedassetoffer.Create(opts)
 }

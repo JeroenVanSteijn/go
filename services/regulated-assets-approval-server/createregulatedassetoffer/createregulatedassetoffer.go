@@ -5,17 +5,18 @@ import (
 	"github.com/stellar/go/keypair"
 	"github.com/stellar/go/network"
 	"github.com/stellar/go/support/errors"
+	"github.com/stellar/go/support/log"
 	"github.com/stellar/go/txnbuild"
 )
 
-type CreateRegulatedAssetOfferOptions struct {
+type Options struct {
 	HorizonURL          string
 	NetworkPassphrase   string
 	AccountIssuerSecret string
 	AssetCode           string
 }
 
-func (opts CreateRegulatedAssetOfferOptions) horizonClient() horizonclient.ClientInterface {
+func (opts Options) horizonClient() horizonclient.ClientInterface {
 	var client *horizonclient.Client
 	if opts.NetworkPassphrase == network.PublicNetworkPassphrase {
 		client = horizonclient.DefaultPublicNetClient
@@ -28,7 +29,7 @@ func (opts CreateRegulatedAssetOfferOptions) horizonClient() horizonclient.Clien
 	return client
 }
 
-func IssueAssetOffer(opts CreateRegulatedAssetOfferOptions) error {
+func Create(opts Options) error {
 	kp, err := keypair.ParseFull(opts.AccountIssuerSecret)
 	if err != nil {
 		return errors.Wrap(err, "parsing secret")
@@ -71,10 +72,12 @@ func IssueAssetOffer(opts CreateRegulatedAssetOfferOptions) error {
 		return errors.Wrap(err, "signing transaction")
 	}
 
+	log.Info("Will create offer")
 	_, err = horizonClient.SubmitTransaction(tx)
 	if err != nil {
 		return parseHorizonError(err)
 	}
+	log.Info("Did create offer")
 
 	return nil
 }

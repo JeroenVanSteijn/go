@@ -6,7 +6,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/stellar/go/clients/horizonclient"
 	"github.com/stellar/go/network"
-	"github.com/stellar/go/services/regulated-assets-approval-server/createregulatedassetoffer"
+	"github.com/stellar/go/services/regulated-assets-approval-server/internal/createregulatedassetoffer"
 	"github.com/stellar/go/support/config"
 )
 

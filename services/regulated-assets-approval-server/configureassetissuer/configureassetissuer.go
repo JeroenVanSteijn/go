@@ -28,21 +28,14 @@ func (opts Options) horizonClient() horizonclient.ClientInterface {
 	return client
 }
 
-func Configure(opts Options) {
-	err := configureAccountFlags(opts)
-	if err != nil {
-		log.DefaultLogger.Fatal(errors.Wrap(err, "configuring account flags"))
-	}
-}
-
-// configureAccountFlags will set the account flags needed for regulated assets
-// to "auth_required: true" and "auth_revocable: true".
+// Configure will set the account flags needed for regulated assets to
+// "auth_required: true" and "auth_revocable: true".
 // ref1:https://developers.stellar.org/docs/issuing-assets/control-asset-access/
 // ref2:https://github.com/stellar/stellar-protocol/blob/d49e04af8e047474f2c506d9d11bb63b6ad55d2c/ecosystem/sep-0008.md#authorization-flags
-func configureAccountFlags(opts Options) error {
+func Configure(opts Options) {
 	kp, err := keypair.ParseFull(opts.AccountIssuerSecret)
 	if err != nil {
-		return errors.Wrap(err, "parsing secret")
+		log.Fatal(errors.Wrap(err, "parsing secret"))
 	}
 
 	horizonClient := opts.horizonClient()
@@ -52,12 +45,12 @@ func configureAccountFlags(opts Options) error {
 		AccountID: kp.Address(),
 	})
 	if err != nil {
-		return errors.Wrap(err, "getting account detail")
+		log.Fatal(errors.Wrap(err, "getting account detail"))
 	}
 
 	if account.Flags.AuthRevocable && account.Flags.AuthRequired {
 		log.Info("Account is already \"Auth Required\" and \"Auth Revocable\"")
-		return nil
+		return
 	}
 
 	tx, err := txnbuild.NewTransaction(
@@ -77,22 +70,20 @@ func configureAccountFlags(opts Options) error {
 		},
 	)
 	if err != nil {
-		return errors.Wrap(err, "creating transaction")
+		log.Fatal(errors.Wrap(err, "creating transaction"))
 	}
 
 	tx, err = tx.Sign(opts.NetworkPassphrase, kp)
 	if err != nil {
-		return errors.Wrap(err, "signing transaction")
+		log.Fatal(errors.Wrap(err, "signing transaction"))
 	}
 
 	log.Info("Will update account flags")
 	_, err = horizonClient.SubmitTransaction(tx)
 	if err != nil {
-		return parseHorizonError(err)
+		log.Fatal(parseHorizonError(err))
 	}
 	log.Info("Did update account flags")
-
-	return nil
 }
 
 func parseHorizonError(err error) error {

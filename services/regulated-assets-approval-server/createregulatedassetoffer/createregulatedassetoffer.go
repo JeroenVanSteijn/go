@@ -29,10 +29,12 @@ func (opts Options) horizonClient() horizonclient.ClientInterface {
 	return client
 }
 
-func Create(opts Options) error {
+// Create is used to create a sell offer of the regulated asset to create a
+// market for this new asset.
+func Create(opts Options) {
 	kp, err := keypair.ParseFull(opts.AccountIssuerSecret)
 	if err != nil {
-		return errors.Wrap(err, "parsing secret")
+		log.Fatal(errors.Wrap(err, "parsing secret"))
 	}
 
 	horizonClient := opts.horizonClient()
@@ -41,7 +43,7 @@ func Create(opts Options) error {
 		AccountID: kp.Address(),
 	})
 	if err != nil {
-		return errors.Wrap(err, "getting account detail")
+		log.Fatal(errors.Wrap(err, "getting account detail"))
 	}
 
 	tx, err := txnbuild.NewTransaction(
@@ -64,22 +66,22 @@ func Create(opts Options) error {
 		},
 	)
 	if err != nil {
-		return errors.Wrap(err, "creating transaction")
+		log.Fatal(errors.Wrap(err, "creating transaction"))
 	}
 
 	tx, err = tx.Sign(opts.NetworkPassphrase, kp)
 	if err != nil {
-		return errors.Wrap(err, "signing transaction")
+		log.Fatal(errors.Wrap(err, "signing transaction"))
 	}
 
 	log.Info("Will create offer")
 	_, err = horizonClient.SubmitTransaction(tx)
 	if err != nil {
-		return parseHorizonError(err)
+		log.Fatal(parseHorizonError(err))
 	}
 	log.Info("Did create offer")
 
-	return nil
+	return
 }
 
 func parseHorizonError(err error) error {

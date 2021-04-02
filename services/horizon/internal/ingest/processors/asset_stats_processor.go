@@ -2,7 +2,6 @@ package processors
 
 import (
 	"database/sql"
-	"math/big"
 
 	"github.com/stellar/go/ingest"
 	"github.com/stellar/go/services/horizon/internal/db2/history"
@@ -41,36 +40,39 @@ func (p *AssetStatsProcessor) reset() {
 }
 
 func (p *AssetStatsProcessor) ProcessChange(change ingest.Change) error {
-	if change.Type != xdr.LedgerEntryTypeTrustline {
+	if change.Type != xdr.LedgerEntryTypeClaimableBalance && change.Type != xdr.LedgerEntryTypeTrustline {
 		return nil
 	}
-
 	if p.useLedgerEntryCache {
-		err := p.cache.AddChange(change)
-		if err != nil {
-			return errors.Wrap(err, "error adding to ledgerCache")
-		}
-
-		if p.cache.Size() > maxBatchSize {
-			err = p.Commit()
-			if err != nil {
-				return errors.Wrap(err, "error in Commit")
-			}
-			p.reset()
-		}
-		return nil
+		return p.addToCache(change)
 	}
-
-	if !(change.Pre == nil && change.Post != nil) {
+	if change.Pre != nil || change.Post == nil {
 		return errors.New("AssetStatsProcessor is in insert only mode")
 	}
 
-	postTrustLine := change.Post.Data.MustTrustLine()
-	err := p.adjustAssetStat(nil, &postTrustLine)
+	switch change.Type {
+	case xdr.LedgerEntryTypeClaimableBalance:
+		return p.assetStatSet.AddClaimableBalance(change)
+	case xdr.LedgerEntryTypeTrustline:
+		return p.assetStatSet.AddTrustline(change)
+	default:
+		return nil
+	}
+}
+
+func (p *AssetStatsProcessor) addToCache(change ingest.Change) error {
+	err := p.cache.AddChange(change)
 	if err != nil {
-		return errors.Wrap(err, "Error adjusting asset stat")
+		return errors.Wrap(err, "error adding to ledgerCache")
 	}
 
+	if p.cache.Size() > maxBatchSize {
+		err = p.Commit()
+		if err != nil {
+			return errors.Wrap(err, "error in Commit")
+		}
+		p.reset()
+	}
 	return nil
 }
 
@@ -82,23 +84,13 @@ func (p *AssetStatsProcessor) Commit() error {
 	changes := p.cache.GetChanges()
 	for _, change := range changes {
 		var err error
-
-		switch {
-		case change.Pre == nil && change.Post != nil:
-			// Created
-			postTrustLine := change.Post.Data.MustTrustLine()
-			err = p.adjustAssetStat(nil, &postTrustLine)
-		case change.Pre != nil && change.Post != nil:
-			// Updated
-			preTrustLine := change.Pre.Data.MustTrustLine()
-			postTrustLine := change.Post.Data.MustTrustLine()
-			err = p.adjustAssetStat(&preTrustLine, &postTrustLine)
-		case change.Pre != nil && change.Post == nil:
-			// Removed
-			preTrustLine := change.Pre.Data.MustTrustLine()
-			err = p.adjustAssetStat(&preTrustLine, nil)
+		switch change.Type {
+		case xdr.LedgerEntryTypeClaimableBalance:
+			err = p.assetStatSet.AddClaimableBalance(change)
+		case xdr.LedgerEntryTypeTrustline:
+			err = p.assetStatSet.AddTrustline(change)
 		default:
-			return errors.New("Invalid io.Change: change.Pre == nil && change.Post == nil")
+			return errors.Errorf("Change type %v is unexpected", change.Type)
 		}
 
 		if err != nil {
@@ -109,8 +101,10 @@ func (p *AssetStatsProcessor) Commit() error {
 	assetStatsDeltas := p.assetStatSet.All()
 	for _, delta := range assetStatsDeltas {
 		var rowsAffected int64
+		var stat history.ExpAssetStat
+		var err error
 
-		stat, err := p.assetStatsQ.GetAssetStat(
+		stat, err = p.assetStatsQ.GetAssetStat(
 			delta.AssetType,
 			delta.AssetCode,
 			delta.AssetIssuer,
@@ -121,39 +115,60 @@ func (p *AssetStatsProcessor) Commit() error {
 		}
 
 		if assetStatNotFound {
-			// Insert
-			if delta.NumAccounts < 0 {
+			// Safety checks
+			if delta.Accounts.Authorized < 0 {
 				return ingest.NewStateError(errors.Errorf(
-					"NumAccounts negative but DB entry does not exist for asset: %s %s %s",
+					"Authorized accounts negative but DB entry does not exist for asset: %s %s %s",
+					delta.AssetType,
+					delta.AssetCode,
+					delta.AssetIssuer,
+				))
+			} else if delta.Accounts.AuthorizedToMaintainLiabilities < 0 {
+				return ingest.NewStateError(errors.Errorf(
+					"AuthorizedToMaintainLiabilities accounts negative but DB entry does not exist for asset: %s %s %s",
+					delta.AssetType,
+					delta.AssetCode,
+					delta.AssetIssuer,
+				))
+			} else if delta.Accounts.Unauthorized < 0 {
+				return ingest.NewStateError(errors.Errorf(
+					"Unauthorized accounts negative but DB entry does not exist for asset: %s %s %s",
+					delta.AssetType,
+					delta.AssetCode,
+					delta.AssetIssuer,
+				))
+			} else if delta.Accounts.ClaimableBalances < 0 {
+				return ingest.NewStateError(errors.Errorf(
+					"Claimable balance accounts negative but DB entry does not exist for asset: %s %s %s",
 					delta.AssetType,
 					delta.AssetCode,
 					delta.AssetIssuer,
 				))
 			}
 
+			// Insert
 			var errInsert error
 			rowsAffected, errInsert = p.assetStatsQ.InsertAssetStat(delta)
 			if errInsert != nil {
 				return errors.Wrap(errInsert, "could not insert asset stat")
 			}
 		} else {
-			statBalance, ok := new(big.Int).SetString(stat.Amount, 10)
-			if !ok {
-				return errors.New("Error parsing: " + stat.Amount)
+			var statBalances assetStatBalances
+			if err = statBalances.Parse(&stat.Balances); err != nil {
+				return errors.Wrap(err, "Error parsing balances")
 			}
 
-			deltaBalance, ok := new(big.Int).SetString(delta.Amount, 10)
-			if !ok {
-				return errors.New("Error parsing: " + stat.Amount)
+			var deltaBalances assetStatBalances
+			if err = deltaBalances.Parse(&delta.Balances); err != nil {
+				return errors.Wrap(err, "Error parsing balances")
 			}
 
-			// statBalance = statBalance + deltaBalance
-			statBalance.Add(statBalance, deltaBalance)
-			statAccounts := stat.NumAccounts + delta.NumAccounts
+			statBalances = statBalances.Add(deltaBalances)
+			statAccounts := stat.Accounts.Add(delta.Accounts)
 
-			if statAccounts == 0 {
+			if statAccounts.IsZero() {
 				// Remove stats
-				if statBalance.Cmp(big.NewInt(0)) != 0 {
+				if !statBalances.IsZero() {
 					return ingest.NewStateError(errors.Errorf(
 						"Removing asset stat by final amount non-zero for: %s %s %s",
 						delta.AssetType,
@@ -175,8 +190,10 @@ func (p *AssetStatsProcessor) Commit() error {
 					AssetType:   delta.AssetType,
 					AssetCode:   delta.AssetCode,
 					AssetIssuer: delta.AssetIssuer,
-					Amount:      statBalance.String(),
-					NumAccounts: statAccounts,
+					Accounts:    statAccounts,
+					Balances:    statBalances.ConvertToHistoryObject(),
+					Amount:      statBalances.Authorized.String(),
+					NumAccounts: statAccounts.Authorized,
 				})
 				if err != nil {
 					return errors.Wrap(err, "could not update asset stat")
@@ -195,59 +212,5 @@ func (p *AssetStatsProcessor) Commit() error {
 		}
 	}
 
-	return nil
-}
-
-func (p *AssetStatsProcessor) adjustAssetStat(
-	preTrustline *xdr.TrustLineEntry,
-	postTrustline *xdr.TrustLineEntry,
-) error {
-	var deltaBalance xdr.Int64
-	var deltaAccounts int32
-	var trustline xdr.TrustLineEntry
-
-	if preTrustline != nil && postTrustline == nil {
-		trustline = *preTrustline
-		// removing a trustline
-		if xdr.TrustLineFlags(preTrustline.Flags).IsAuthorized() {
-			deltaAccounts = -1
-			deltaBalance = -preTrustline.Balance
-		}
-	} else if preTrustline == nil && postTrustline != nil {
-		trustline = *postTrustline
-		// adding a trustline
-		if xdr.TrustLineFlags(postTrustline.Flags).IsAuthorized() {
-			deltaAccounts = 1
-			deltaBalance = postTrustline.Balance
-		}
-	} else if preTrustline != nil && postTrustline != nil {
-		trustline = *postTrustline
-		// updating a trustline
-		if xdr.TrustLineFlags(preTrustline.Flags).IsAuthorized() &&
-			xdr.TrustLineFlags(postTrustline.Flags).IsAuthorized() {
-			// trustline remains authorized
-			deltaAccounts = 0
-			deltaBalance = postTrustline.Balance - preTrustline.Balance
-		} else if xdr.TrustLineFlags(preTrustline.Flags).IsAuthorized() &&
-			!xdr.TrustLineFlags(postTrustline.Flags).IsAuthorized() {
-			// trustline was authorized and became unauthorized
-			deltaAccounts = -1
-			deltaBalance = -preTrustline.Balance
-		} else if !xdr.TrustLineFlags(preTrustline.Flags).IsAuthorized() &&
-			xdr.TrustLineFlags(postTrustline.Flags).IsAuthorized() {
-			// trustline was unauthorized and became authorized
-			deltaAccounts = 1
-			deltaBalance = postTrustline.Balance
-		}
-		// else, trustline was unauthorized and remains unauthorized
-		// so there is no change to accounts or balances
-	} else {
-		return ingest.NewStateError(errors.New("both pre and post trustlines cannot be nil"))
-	}
-
-	err := p.assetStatSet.AddDelta(trustline.Asset, int64(deltaBalance), deltaAccounts)
-	if err != nil {
-		return errors.Wrap(err, "error running AssetStatSet.AddDelta")
-	}
 	return nil
 }

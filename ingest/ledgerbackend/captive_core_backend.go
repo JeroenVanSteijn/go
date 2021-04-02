@@ -121,24 +121,39 @@ type CaptiveCoreConfig struct {
 	LedgerHashStore TrustedLedgerHashStore
 	// HTTPPort is the TCP port to listen for requests (defaults to 0, which disables the HTTP server)
 	HTTPPort uint
+	// PeerPort is the TCP port to bind to for connecting to the Stellar network
+	// (defaults to 11625). It may be useful for example when there's >1 Stellar-Core
+	// instance running on a machine.
+	PeerPort uint
 	// Log is an (optional) custom logger which will capture any output from the Stellar Core process.
 	// If Log is omitted then all output will be printed to stdout.
 	Log *log.Entry
+	// LogPath is the (optional) path in which to store Core logs, passed along
+	// to Stellar Core's LOG_FILE_PATH
+	LogPath string
 	// Context is the (optional) context which controls the lifetime of a CaptiveStellarCore instance. Once the context is done
 	// the CaptiveStellarCore instance will not be able to stream ledgers from Stellar Core or spawn new
 	// instances of Stellar Core. If Context is omitted CaptiveStellarCore will default to using context.Background.
 	Context context.Context
+	// StoragePath is the (optional) base path passed along to Core's
+	// BUCKET_DIR_PATH which specifies where various bucket data should be
+	// stored. We always append /captive-core to this directory, since we clean
+	// it up entirely on shutdown.
+	StoragePath string
 }
 
 // NewCaptive returns a new CaptiveStellarCore instance.
 func NewCaptive(config CaptiveCoreConfig) (*CaptiveStellarCore, error) {
 	// Here we set defaults in the config. Because config is not a pointer this code should
 	// not mutate the original CaptiveCoreConfig instance which was passed into NewCaptive()
+
+	// Log Captive Core straight to stdout by default
 	if config.Log == nil {
 		config.Log = log.New()
 		config.Log.Logger.SetOutput(os.Stdout)
 		config.Log.SetLevel(logrus.InfoLevel)
 	}
+
 	parentCtx := config.Context
 	if parentCtx == nil {
 		parentCtx = context.Background()

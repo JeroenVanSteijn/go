@@ -433,12 +433,12 @@ func (operation *transactionOperationWrapper) Details() (map[string]interface{},
 		op := operation.operation.Body.MustSetTrustLineFlagsOp()
 		details["trustor"] = op.Trustor.Address()
 		addAssetDetails(details, op.Asset, "")
-		if op.SetFlags != nil && *op.SetFlags > 0 {
-			addTrustLineFlagDetails(details, xdr.TrustLineFlags(*op.SetFlags), "set")
+		if op.SetFlags > 0 {
+			addTrustLineFlagDetails(details, xdr.TrustLineFlags(op.SetFlags), "set")
 		}
 
-		if op.ClearFlags != nil && *op.ClearFlags > 0 {
-			addTrustLineFlagDetails(details, xdr.TrustLineFlags(*op.ClearFlags), "clear")
+		if op.ClearFlags > 0 {
+			addTrustLineFlagDetails(details, xdr.TrustLineFlags(op.ClearFlags), "clear")
 		}
 	default:
 		panic(fmt.Errorf("Unknown operation type: %s", operation.OperationType()))
@@ -652,11 +652,11 @@ func (operation *transactionOperationWrapper) Participants() ([]xdr.AccountId, e
 		participants = append(participants, *sponsor)
 	}
 
-	return dedupe(participants), nil
+	return dedupeParticipants(participants), nil
 }
 
-// dedupe remove any duplicate ids from `in`
-func dedupe(in []xdr.AccountId) (out []xdr.AccountId) {
+// dedupeParticipants remove any duplicate ids from `in`
+func dedupeParticipants(in []xdr.AccountId) (out []xdr.AccountId) {
 	set := map[string]xdr.AccountId{}
 	for _, id := range in {
 		set[id.Address()] = id

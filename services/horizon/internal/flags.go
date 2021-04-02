@@ -29,6 +29,8 @@ const (
 	StellarCoreBinaryPathName = "stellar-core-binary-path"
 	// CaptiveCoreConfigAppendPathName is the command line flag for configuring the path to the captive core additional configuration
 	CaptiveCoreConfigAppendPathName = "captive-core-config-append-path"
+
+	captiveCoreMigrationHint = "If you are migrating from Horizon 1.x.y read the Migration Guide here: https://github.com/stellar/go/blob/master/services/horizon/internal/docs/captive_core.md"
 )
 
 // validateBothOrNeither ensures that both options are provided, if either is provided.
@@ -130,6 +132,33 @@ func Flags() (*Config, support.ConfigOptions) {
 			Required:    false,
 			Usage:       "HTTP port for Captive Core to listen on (0 disables the HTTP server)",
 			ConfigKey:   &config.CaptiveCoreHTTPPort,
+		},
+		&support.ConfigOption{
+			Name:        "captive-core-storage-path",
+			OptType:     types.String,
+			FlagDefault: "",
+			CustomSetValue: func(opt *support.ConfigOption) {
+				existingValue := viper.GetString(opt.Name)
+				if existingValue == "" || existingValue == "." {
+					cwd, err := os.Getwd()
+					if err != nil {
+						stdLog.Fatalf("Unable to determine the current directory: %s", err)
+					}
+					existingValue = cwd
+				}
+				*opt.ConfigKey.(*string) = existingValue
+			},
+			Required:  false,
+			Usage:     "Storage location for Captive Core bucket data",
+			ConfigKey: &config.CaptiveCoreStoragePath,
+		},
+		&support.ConfigOption{
+			Name:        "captive-core-peer-port",
+			OptType:     types.Uint,
+			FlagDefault: uint(0),
+			Required:    false,
+			Usage:       "port for Captive Core to bind to for connecting to the Stellar swarm (0 uses Stellar Core's default)",
+			ConfigKey:   &config.CaptiveCorePeerPort,
 		},
 		&support.ConfigOption{
 			Name:      StellarCoreDBURLFlagName,
@@ -256,6 +285,12 @@ func Flags() (*Config, support.ConfigOptions) {
 			Usage:     "name of the file where logs will be saved (leave empty to send logs to stdout)",
 		},
 		&support.ConfigOption{
+			Name:      "captive-core-log-path",
+			ConfigKey: &config.CaptiveCoreLogPath,
+			OptType:   types.String,
+			Usage:     "name of the path for Core logs (leave empty to log w/ Horizon only)",
+		},
+		&support.ConfigOption{
 			Name:        "max-path-length",
 			ConfigKey:   &config.MaxPathLength,
 			OptType:     types.Uint,
@@ -359,6 +394,22 @@ func Flags() (*Config, support.ConfigOptions) {
 			Required:    false,
 			Usage:       "establishes how many ledgers exist between checkpoints, do NOT change this unless you really know what you are doing",
 		},
+		&support.ConfigOption{
+			Name:        "behind-cloudflare",
+			ConfigKey:   &config.BehindCloudflare,
+			OptType:     types.Bool,
+			FlagDefault: false,
+			Required:    false,
+			Usage:       "determines if Horizon instance is behind Cloudflare, in such case client IP in the logs will be replaced with Cloudflare header (cannot be used with --behind-aws-load-balancer)",
+		},
+		&support.ConfigOption{
+			Name:        "behind-aws-load-balancer",
+			ConfigKey:   &config.BehindAWSLoadBalancer,
+			OptType:     types.Bool,
+			FlagDefault: false,
+			Required:    false,
+			Usage:       "determines if Horizon instance is behind AWS load balances like ELB or ALB, in such case client IP in the logs will be replaced with the last IP in X-Forwarded-For header (cannot be used with --behind-cloudflare)",
+		},
 	}
 
 	return config, flags
@@ -397,46 +448,58 @@ func ApplyFlags(config *Config, flags support.ConfigOptions) {
 	// Validate options that should be provided together
 	validateBothOrNeither("tls-cert", "tls-key")
 
-	// config.HistoryArchiveURLs contains a single empty value when empty so using
-	// viper.GetString is easier.
-	if config.Ingest && viper.GetString("history-archive-urls") == "" {
-		stdLog.Fatalf("--history-archive-urls must be set when --ingest is set")
-	}
+	if config.Ingest {
 
-	if config.EnableCaptiveCoreIngestion {
-		binaryPath := viper.GetString(StellarCoreBinaryPathName)
+		// config.HistoryArchiveURLs contains a single empty value when empty so using
+		// viper.GetString is easier.
+		if len(config.HistoryArchiveURLs) == 0 {
+			stdLog.Fatalf("--history-archive-urls must be set when --ingest is set")
+		}
 
-		// If the user didn't specify a Stellar Core binary, we can check the
-		// $PATH and possibly fill it in for them.
-		if binaryPath == "" {
-			if result, err := exec.LookPath("stellar-core"); err == nil {
-				binaryPath = result
-				viper.Set(StellarCoreBinaryPathName, binaryPath)
-				config.CaptiveCoreBinaryPath = binaryPath
+		if config.EnableCaptiveCoreIngestion {
+			binaryPath := viper.GetString(StellarCoreBinaryPathName)
+
+			// If the user didn't specify a Stellar Core binary, we can check the
+			// $PATH and possibly fill it in for them.
+			if binaryPath == "" {
+				if result, err := exec.LookPath("stellar-core"); err == nil {
+					binaryPath = result
+					viper.Set(StellarCoreBinaryPathName, binaryPath)
+					config.CaptiveCoreBinaryPath = binaryPath
+				}
+			}
+
+			// When running live ingestion a config file is required too
+			validateBothOrNeither(StellarCoreBinaryPathName, CaptiveCoreConfigAppendPathName)
+
+			// NOTE: If both of these are set (regardless of user- or PATH-supplied
+			//       defaults for the binary path), the Remote Captive Core URL
+			//       takes precedence.
+			if binaryPath == "" && config.RemoteCaptiveCoreURL == "" {
+				stdLog.Fatalf("Invalid config: captive core requires that either --%s or --remote-captive-core-url is set. %s",
+					StellarCoreBinaryPathName, captiveCoreMigrationHint)
+			}
+
+			if binaryPath == "" || config.CaptiveCoreConfigAppendPath == "" {
+				stdLog.Fatalf("Invalid config: captive core requires that both --%s and --%s are set. %s",
+					StellarCoreBinaryPathName, CaptiveCoreConfigAppendPathName, captiveCoreMigrationHint)
+			}
+
+			// If we don't supply an explicit core URL and we are running a local
+			// captive core process with the http port enabled, point to it.
+			if config.StellarCoreURL == "" && config.RemoteCaptiveCoreURL == "" && config.CaptiveCoreHTTPPort != 0 {
+				config.StellarCoreURL = fmt.Sprintf("http://localhost:%d", config.CaptiveCoreHTTPPort)
+				viper.Set(StellarCoreURLFlagName, config.StellarCoreURL)
 			}
 		}
-
-		remoteURL := viper.GetString("remote-captive-core-url")
-
-		// NOTE: If both of these are set (regardless of user- or PATH-supplied
-		//       defaults for the binary path), the Remote Captive Core URL
-		//       takes precedence.
-		if binaryPath == "" && remoteURL == "" {
-			stdLog.Fatalf("Invalid config: captive core requires that either --stellar-core-binary-path or --remote-captive-core-url is set. " +
-				"If you are migrating from Horizon 1.x.y read the Migration Guide here: https://github.com/stellar/go/blob/master/services/horizon/internal/docs/captive_core.md")
+	} else {
+		if config.EnableCaptiveCoreIngestion && (config.CaptiveCoreBinaryPath != "" || config.CaptiveCoreConfigAppendPath != "") {
+			stdLog.Fatalf("Invalid config: one or more captive core params passed (--%s or --%s) but --ingest not set. "+captiveCoreMigrationHint,
+				StellarCoreBinaryPathName, CaptiveCoreConfigAppendPathName)
 		}
-
-		// If we don't supply an explicit core URL and we are running a local
-		// captive core process with the http port enabled, point to it.
-		if config.StellarCoreURL == "" && config.RemoteCaptiveCoreURL == "" && config.CaptiveCoreHTTPPort != 0 {
-			config.StellarCoreURL = fmt.Sprintf("http://localhost:%d", config.CaptiveCoreHTTPPort)
-			viper.Set(StellarCoreURLFlagName, config.StellarCoreURL)
+		if config.StellarCoreDatabaseURL != "" {
+			stdLog.Fatalf("Invalid config: --%s passed but --ingest not set. ", StellarCoreDBURLFlagName)
 		}
-	}
-
-	if config.Ingest {
-		// When running live ingestion a config file is required too
-		validateBothOrNeither(StellarCoreBinaryPathName, CaptiveCoreConfigAppendPathName)
 	}
 
 	// Configure log file
@@ -457,5 +520,9 @@ func ApplyFlags(config *Config, flags support.ConfigOptions) {
 	if config.MaxDBConnections != 0 {
 		config.HorizonDBMaxOpenConnections = config.MaxDBConnections
 		config.HorizonDBMaxIdleConnections = config.MaxDBConnections
+	}
+
+	if config.BehindCloudflare && config.BehindAWSLoadBalancer {
+		stdLog.Fatal("Invalid config: Only one option of --behind-cloudflare and --behind-aws-load-balancer is allowed. If Horizon is behind both, use --behind-cloudflare only.")
 	}
 }
